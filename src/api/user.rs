@@ -5,35 +5,38 @@ use actix_web::{HttpRequest, HttpResponse};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use validator::Validate;
 
 use crate::crypto::{self, PublicKey, SecretKey, Signature};
 
 use crate::{
     api,
     api::types::*,
-    api::{error::param_error, ApiResult, Error as ApiError, HttpRequest as ApiHttpRequest},
+    api::{
+        error::{param_error, unauthorized},
+        ApiResult, Error as ApiError, HttpRequest as ApiHttpRequest,
+    },
     auth,
     error::{Error, ErrorCode},
+    models,
     prelude::*,
+    types::AccountKind,
 };
 
-/// Definisi query untuk mendaftarkan akun baru via rest API.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RegisterUser {
-    pub full_name: String,
-    pub email: String,
-    pub phone_num: String,
-    // comment out: mungkin tidak untuk sekarang
-    // pub nik: String,
-}
+// /// Definisi query untuk mendaftarkan akun baru via rest API.
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct RegisterUser {
+//     pub full_name: String,
+//     pub email: String,
+//     pub phone_num: String,
+// }
 
-/// Definisi query untuk mengaktifkan akun yang telah didaftarkan.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ActivateUser {
-    pub token: String,
-    pub password: String,
-}
-
+// /// Definisi query untuk mengaktifkan akun yang telah didaftarkan.
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct ActivateUser {
+//     pub token: String,
+//     pub password: String,
+// }
 
 /// Model untuk keperluan tukar menukar data API
 /// bukan yang di database (crate::models).
@@ -81,9 +84,22 @@ pub mod types {
             ApiResult::success(a.into())
         }
     }
-
 }
 
+// #[derive(Deserialize, Validate)]
+// pub struct SetUserSettings {
+//     pub enable_push_notif: Option<bool>,
+//     pub cough: Option<bool>,
+//     pub fever: Option<bool>,
+//     pub cold: Option<bool>,
+//     pub headache: Option<bool>,
+// }
+
+#[derive(Deserialize, Validate)]
+pub struct SetUserSetting {
+    pub key: String,
+    pub value: String,
+}
 
 #[derive(Deserialize)]
 pub struct UpdatePassword {
@@ -99,34 +115,30 @@ pub struct PublicApi;
 
 #[api_group("User", "public", base = "/user/v1")]
 impl PublicApi {
+    // /// Rest API endpoint untuk mendaftarkan akun baru.
+    // /// Setelah register akun tidak langsung aktif, perlu melakukan
+    // /// aktifasi menggunakan endpoint `/user/activate`.
+    // #[api_endpoint(path = "/user/register", mutable, auth = "none")]
+    // pub fn register_user(query: RegisterUser) -> ApiResult<String> {
+    //     let conn = state.db();
+    //     let schema = UserDao::new(&conn);
 
+    //     schema
+    //         .register_user(&query.full_name, &query.email, &query.phone_num)
+    //         .map_err(From::from)
+    //         .map(ApiResult::success)
+    // }
 
-
-
-    /// Rest API endpoint untuk mendaftarkan akun baru.
-    /// Setelah register akun tidak langsung aktif, perlu melakukan
-    /// aktifasi menggunakan endpoint `/user/activate`.
-    #[api_endpoint(path = "/user/register", mutable, auth = "none")]
-    pub fn register_user(query: RegisterUser) -> ApiResult<String> {
-        let conn = state.db();
-        let schema = UserDao::new(&conn);
-
-        schema
-            .register_user(&query.full_name, &query.email, &query.phone_num)
-            .map_err(From::from)
-            .map(ApiResult::success)
-    }
-
-    /// Mengaktifkan user yang telah teregister.
-    /// Ini nantinya dijadikan link yang akan dikirimkan ke email pendaftar.
-    #[api_endpoint(path = "/user/activate", auth = "none", mutable)]
-    pub fn activate_user(query: ActivateUser) -> ApiResult<types::User> {
-        let conn = state.db();
-        let schema = UserDao::new(&conn);
-        let user = schema.activate_registered_user(query.token)?;
-        schema.set_password(user.id, &query.password)?;
-        Ok(user.into())
-    }
+    // /// Mengaktifkan user yang telah teregister.
+    // /// Ini nantinya dijadikan link yang akan dikirimkan ke email pendaftar.
+    // #[api_endpoint(path = "/user/activate", auth = "none", mutable)]
+    // pub fn activate_user(query: ActivateUser) -> ApiResult<types::User> {
+    //     let conn = state.db();
+    //     let schema = UserDao::new(&conn);
+    //     let user = schema.activate_registered_user(query.token)?;
+    //     schema.set_password(user.id, &query.password)?;
+    //     Ok(user.into())
+    // }
 
     /// Mendapatkan informasi current user.
     #[api_endpoint(path = "/me/info", auth = "required")]
@@ -150,7 +162,7 @@ impl PublicApi {
 
         let auth_dao = auth::AuthDao::new(&conn);
 
-        let user_passhash = auth_dao.get_passhash("user", current_user.id)?;
+        let user_passhash = auth_dao.get_passhash(AccountKind::User, current_user.id)?;
         if !crypto::password_match(&query.old_password, &user_passhash) {
             warn!(
                 "user `{}` try to update password using wrong password",
@@ -163,6 +175,91 @@ impl PublicApi {
 
         Ok(ApiResult::success(()))
     }
+
+    /// Register and connect current account to event push notif (FCM).
+    /// Parameter `app_id` adalah app id dari client app.
+    #[api_endpoint(path = "/me/connect/create", auth = "required", mutable)]
+    pub fn connect_create(query: UserConnect) -> ApiResult<()> {
+        query.validate()?;
+
+        let conn = state.db();
+        let dao = UserDao::new(&conn);
+
+        dao.create_user_connect(
+            current_user.id,
+            &query.device_id,
+            &query.provider_name,
+            &query.app_id,
+            &query.loc_name,
+            &query.loc_name_full,
+        )?;
+        Ok(ApiResult::success(()))
+    }
+
+    /// Revoke or disconnect current account to event push notif (FCM).
+    /// Parameter `app_id` adalah app id dari client app.
+    #[api_endpoint(path = "/me/connect/remove", auth = "none", mutable)]
+    pub fn connect_remove(query: UserConnect) -> ApiResult<()> {
+        query.validate()?;
+
+        let conn = state.db();
+        let dao = UserDao::new(&conn);
+
+        dao.remove_user_connect(&query.device_id, &query.provider_name, &query.app_id)?;
+        Ok(ApiResult::success(()))
+    }
+
+    /// Update latest location
+    #[api_endpoint(path = "/me/update_loc", auth = "required", mutable)]
+    pub fn update_location(query: UpdateLocation) -> ApiResult<()> {
+        let conn = state.db();
+        let dao = UserDao::new(&conn);
+        dao.update_user_location(&query.device_id, &query.loc_name, &query.loc_name_full)?;
+        Ok(ApiResult::success(()))
+    }
+
+    /// Mendapatkan data akun.
+    #[api_endpoint(path = "/user/info", accessor = "admin", auth = "required")]
+    pub fn user_info(query: IdQuery) -> ApiResult<db::User> {
+        let conn = state.db();
+        let dao = UserDao::new(&conn);
+
+        dao.get_by_id(query.id)
+            .map(ApiResult::success)
+            .map_err(From::from)
+    }
+
+    /// Update user settings.
+    #[api_endpoint(path = "/update_setting", auth = "required", mutable)]
+    pub fn update_setting(query: SetUserSetting) -> ApiResult<()> {
+        use crate::schema::users::{self, dsl};
+        let conn = state.db();
+
+        current_user.set_setting(&query.key, &query.value, &conn)?;
+
+        Ok(ApiResult::success(()))
+    }
+
+    /// Get user settings.
+    #[api_endpoint(path = "/settings", auth = "required")]
+    pub fn get_settings(query: ()) -> ApiResult<Vec<models::UserSetting>> {
+        let conn = state.db();
+        let user_settings = current_user.get_settings(&conn)?;
+
+        Ok(ApiResult::success(user_settings))
+    }
+
+    /// Listing user
+    #[api_endpoint(path = "/users", auth = "required", accessor = "admin")]
+    pub fn list_user(query: QueryEntries) -> ApiResult<EntriesResult<db::User>> {
+        let conn = state.db();
+        let dao = UserDao::new(&conn);
+
+        let entries = dao.get_users(query.offset, query.limit)?;
+
+        let count = dao.count()?;
+        Ok(ApiResult::success(EntriesResult { count, entries }))
+    }
 }
 
 use crate::models as db;
@@ -172,7 +269,6 @@ pub struct PrivateApi;
 
 #[api_group("User", "private", base = "/user/v1")]
 impl PrivateApi {
-
     /// Listing user
     #[api_endpoint(path = "/users", auth = "none")]
     pub fn list_user(query: QueryEntries) -> ApiResult<EntriesResult<db::User>> {
@@ -221,6 +317,4 @@ impl PrivateApi {
             .map(ApiResult::success)
             .map_err(From::from)
     }
-
 }
-

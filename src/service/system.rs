@@ -32,10 +32,10 @@ struct PublicApi {}
 
 #[api_group("System", "public", base = "/system/v1")]
 impl PublicApi {
+    /// Get build information.
     #[api_endpoint(path = "/info", auth = "optional")]
     pub fn info(state: &AppState, query: ()) -> JsonValue {
         Ok(json!({ "version": env!("CARGO_PKG_VERSION"), 
                 "build": env!("BUILD_INFO"), "git": env!("GIT_REV") }))
     }
 }
-

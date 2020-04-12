@@ -61,10 +61,39 @@ export default class Pandemia {
         console.log("unauthorize");
         session().remove("token");
         updateSession();
-        return api.publicApi.post("/api/auth/v1/unauthorize", {});
+        return api.publicApi.post("/auth/v1/unauthorize", {});
+      },
+      adminLogin(email, phone, password) {
+
+        var emailOrPhone = email ? email : phone;
+        var data = {
+          "email": emailOrPhone,
+          "password": password
+        }
+
+        return api.publicApi.post("/auth/v1/admin/authorize", data)
+          .then((resp) => {
+            if (resp.data.code == 0) {
+              var access_token = resp.data.result.access_token,
+                user = resp.data.result.user;
+              session().set("token", access_token.token);
+              session().set("user_id", user.id);
+              session().set("user_name", user.name);
+              session().set("user_email", user.email);
+              updateSession(resp.data.result.token);
+              this.loadUserKey();
+            }
+            return resp;
+          });
+      },
+      adminUnauthorize() {
+        console.log("unauthorize");
+        session().remove("token");
+        updateSession();
+        return api.publicApi.post("/auth/v1/admin/unauthorize", {});
       },
       isLoggedIn(cb) {
-        this.getMeInfo().then((resp) => {
+        this.getAdminMeInfo().then((resp) => {
           if (resp.status != 200 || (resp.data.status == "error" && resp.data.code != 0)) {
             cb(false)
           } else {
@@ -74,6 +103,9 @@ export default class Pandemia {
       },
       getMeInfo() {
         return api.publicApi.get("/user/v1/me/info");
+      },
+      getAdminMeInfo() {
+        return api.publicApi.get("/admin/v1/me/info");
       },
 
       // Fetch current user key-pair.

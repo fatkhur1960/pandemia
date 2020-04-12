@@ -8,38 +8,6 @@ table! {
 }
 
 table! {
-    user_keys (id) {
-        id -> Int8,
-        user_id -> Int8,
-        pub_key -> Text,
-        secret_key -> Text,
-        created -> Timestamp,
-        active -> Bool,
-    }
-}
-
-table! {
-    user_passhash (user_id) {
-        user_id -> Int8,
-        passhash -> Varchar,
-        deprecated -> Bool,
-        ver -> Int4,
-        created -> Timestamp,
-    }
-}
-
-table! {
-    users (id) {
-        id -> Int8,
-        full_name -> Varchar,
-        email -> Varchar,
-        phone_num -> Varchar,
-        active -> Bool,
-        register_time -> Timestamp,
-    }
-}
-
-table! {
     addresses (id) {
         id -> Int8,
         user_id -> Int8,
@@ -51,17 +19,6 @@ table! {
         phone_num -> Varchar,
         active -> Bool,
         notes -> Text,
-    }
-}
-
-table! {
-    register_users (token) {
-        token -> Varchar,
-        full_name -> Varchar,
-        email -> Varchar,
-        phone_num -> Varchar,
-        register_time -> Timestamp,
-        code -> Varchar,
     }
 }
 
@@ -98,6 +55,84 @@ table! {
 }
 
 table! {
+    feeds (id) {
+        id -> Int8,
+        creator_id -> Int8,
+        creator_name -> Varchar,
+        loc -> Text,
+        kind -> Int2,
+        text -> Text,
+        hashtags -> Array<Text>,
+        meta -> Array<Text>,
+        ts -> Timestamp,
+    }
+}
+
+table! {
+    geoloc_cache (id) {
+        id -> Int8,
+        name -> Text,
+        latitude -> Float8,
+        longitude -> Float8,
+        ts -> Timestamp,
+    }
+}
+
+table! {
+    map_markers (id) {
+        id -> Int8,
+        name -> Text,
+        info -> Text,
+        latitude -> Float8,
+        longitude -> Float8,
+        kind -> Int2,
+        meta -> Array<Text>,
+        ts -> Timestamp,
+    }
+}
+
+table! {
+    notifs (id) {
+        id -> Int8,
+        kind -> Int2,
+        text -> Varchar,
+        initiator_id -> Int8,
+        receiver_id -> Int8,
+        read -> Bool,
+        keywords -> Array<Text>,
+        meta -> Array<Text>,
+        ts -> Timestamp,
+    }
+}
+
+table! {
+    records (id) {
+        id -> Int8,
+        loc -> Text,
+        loc_kind -> Int2,
+        total_cases -> Int4,
+        total_deaths -> Int4,
+        total_recovered -> Int4,
+        active_cases -> Int4,
+        critical_cases -> Int4,
+        latest -> Bool,
+        meta -> Array<Text>,
+        last_updated -> Timestamp,
+    }
+}
+
+table! {
+    register_users (token) {
+        token -> Varchar,
+        full_name -> Varchar,
+        email -> Varchar,
+        phone_num -> Varchar,
+        register_time -> Timestamp,
+        code -> Varchar,
+    }
+}
+
+table! {
     reset_password_admins (admin_id) {
         admin_id -> Int8,
         token -> Varchar,
@@ -106,24 +141,89 @@ table! {
     }
 }
 
+table! {
+    user_connect (device_id) {
+        device_id -> Text,
+        user_id -> Int8,
+        provider_name -> Varchar,
+        app_id -> Text,
+        enable_push_notif -> Bool,
+        latest_loc -> Text,
+        latest_loc_full -> Text,
+        latest_loc_long -> Float8,
+        latest_loc_lat -> Float8,
+    }
+}
+
+table! {
+    user_keys (id) {
+        id -> Int8,
+        user_id -> Int8,
+        pub_key -> Text,
+        secret_key -> Text,
+        created -> Timestamp,
+        active -> Bool,
+    }
+}
+
+table! {
+    user_passhash (user_id) {
+        user_id -> Int8,
+        passhash -> Varchar,
+        deprecated -> Bool,
+        ver -> Int4,
+        created -> Timestamp,
+    }
+}
+
+table! {
+    user_settings (id) {
+        id -> Int8,
+        user_id -> Int8,
+        s_key -> Text,
+        s_value -> Text,
+    }
+}
+
+table! {
+    users (id) {
+        id -> Int8,
+        full_name -> Varchar,
+        email -> Varchar,
+        phone_num -> Varchar,
+        active -> Bool,
+        register_time -> Timestamp,
+    }
+}
+
 joinable!(access_tokens -> users (user_id));
-joinable!(user_keys -> users (user_id));
-joinable!(user_passhash -> users (user_id));
 joinable!(addresses -> users (user_id));
 joinable!(admin_access_tokens -> admins (admin_id));
 joinable!(admin_passhash -> admins (admin_id));
+joinable!(feeds -> users (creator_id));
+joinable!(notifs -> users (receiver_id));
 joinable!(reset_password_admins -> admins (admin_id));
+joinable!(user_connect -> users (user_id));
+joinable!(user_keys -> users (user_id));
+joinable!(user_passhash -> users (user_id));
+joinable!(user_settings -> users (user_id));
 
 allow_tables_to_appear_in_same_query!(
     access_tokens,
-    user_keys,
-    user_passhash,
-    users,
-    register_users,
     addresses,
     admin_access_tokens,
     admin_passhash,
     admins,
-    reset_password_admins
+    feeds,
+    geoloc_cache,
+    map_markers,
+    notifs,
+    records,
+    register_users,
+    reset_password_admins,
+    user_connect,
+    user_keys,
+    user_passhash,
+    user_settings,
+    users,
 );
-

@@ -99,23 +99,6 @@
 			"}"
 		]
 	},
-	"Implement API endpoint for update": {
-		"scope": "rust",
-		"prefix": "apiendpointupdate",
-		"body": [
-			"/// Update ${1:name}.",
-			"#[api_endpoint(path = \"/update\", auth = \"required\", mutable)]",
-			"pub fn update_${1:name}(query: Update${2:Name}) -> ApiResult<()> {",
-			"    let conn = state.db();",
-			"    use crate::schema::${1:name}s::{self, dsl};",
-			"    diesel::update(dsl::${1:name}s.filter(dsl::id.eq(query.id)))",
-			"        .set(dsl::name.eq(&query.name))",
-			"        .execute(&conn)",
-			"        .map_err(Error::from)?;",
-			"        Ok(ApiResult::success(()))",
-			"}"
-		]
-	},
 	"Implement custom Dao": {
 		"scope": "rust",
 		"prefix": "impldao",
@@ -215,29 +198,6 @@
 			"Ok(ApiResult::success(${1:()}))"
 		]
 	},
-	"Create DAO search method": {
-		"prefix": "daosearchmethod",
-		"body": [
-			"/// Search for specific ${1:model_name}s",
-			"pub fn search(&self, query: &str, offset: i64, limit: i64) -> Result<Vec<Task>> {",
-			"    use crate::schema::${1:model_name}s::{self, dsl};",
-			"",
-			"    let like_clause = format!(\"%{}%\", query);",
-			"",
-			"    let mut filterer: Box<dyn BoxableExpression<${1:model_name}s::table, _, SqlType = sql_types::Bool>> =",
-			"        Box::new(dsl::id.ne(0));",
-			"",
-			"    filterer = Box::new(filterer.and(dsl::name.like(&like_clause)));",
-			"",
-			"    dsl::${1:model_name}s",
-			"        .filter(filterer)",
-			"        .offset(offset)",
-			"        .limit(limit)",
-			"        .load(self.db)",
-			"        .map_err(From::from)",
-			"}"
-		]
-	},
 	"Create DAO update method": {
 		"prefix": "daoupdatemethod",
 		"body": [
@@ -245,11 +205,11 @@
 			"pub fn update_${1:something}(&self, ${2:param}) -> Result<()> {",
 			"    use crate::schema::${3:table_name}s::{self, dsl};",
 			"",
-			"	   diesel::update(dsl::${3:table_name}s.filter(dsl::id.eq(${3:table_name}.id)))",
-			"		   	.set(dsl::${4:name}.eq(${5:}))",
-			"			  .execute(self.db)",
-			"		  	.map_err(Error::from)?;",
-			"	   Ok(())",
+			"    diesel::update(dsl::${3:table_name}s.filter(dsl::id.eq(${3:table_name}.id)))",
+			"       .set(dsl::${4:name}.eq(${5:}))",
+			"       .execute(self.db)",
+			"       .map_err(Error::from)?;",
+			"    Ok(())",
 			"}"
 		]
 	},

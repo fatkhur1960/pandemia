@@ -48,29 +48,42 @@ pub struct AdminDao<'a> {
 }
 
 impl<'a> AdminDao<'a> {
-
     /// Create new Admin
     pub fn create(
         &self,
         name: &'a str,
         email: &'a str,
         phone_num: &'a str,
+        password: &'a str,
         labels: &'a Vec<String>,
     ) -> Result<Admin> {
+        self.db.build_transaction().read_write().run::<_, _, _>(|| {
+            let admin: Admin = diesel::insert_into(admins::table)
+                .values(&NewAdmin {
+                    name,
+                    email,
+                    phone_num,
+                    labels,
+                })
+                .get_result(self.db)?;
 
-        diesel::insert_into(admins::table)
-            .values(&NewAdmin {
-                name,
-                email,
-                phone_num,
-                labels,
-            })
-            .get_result(self.db)
-            .map_err(From::from)
+            // tambahkan password baru
+            let passhash = &crate::crypto::get_passhash(password);
+            diesel::insert_into(admin_passhash::table)
+                .values(&NewAdminPasshash {
+                    admin_id: admin.id,
+                    passhash,
+                    deprecated: false,
+                    ver: 1,
+                })
+                .execute(self.db)?;
+
+            Ok(admin)
+        })
     }
 
     /// Mendapatkan admin berdasarkan emailnya.
-    pub fn get_admin_by_email(&self, email: &str) -> Result<Admin> {
+    pub fn get_by_email(&self, email: &str) -> Result<Admin> {
         use crate::schema::admins::dsl;
         dsl::admins
             .filter(dsl::email.eq(email))
@@ -166,4 +179,3 @@ impl<'a> AdminDao<'a> {
         })
     }
 }
-

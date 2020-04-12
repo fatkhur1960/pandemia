@@ -1,21 +1,15 @@
+use diesel::{connection::Connection, pg::PgConnection};
 use pandemia::api::user::types;
-use pandemia::api::{
-    user::{ActivateUser, RegisterUser},
-    ApiResult,
-};
+use pandemia::api::ApiResult;
 use pandemia::auth;
 use pandemia::crypto::*;
 use pandemia::models;
 use pandemia::prelude::*;
 use pandemia::user_dao::*;
-use pandemia::{
-    api::types::IdQuery,
-    util,
-};
-use diesel::{connection::Connection, pg::PgConnection};
+use pandemia::{api::types::IdQuery, util};
 use serde_json::Value as JsonValue;
 
-use crate::{ApiKind, ID, TestKit, TestKitApi};
+use crate::{ApiKind, TestKit, TestKitApi, ID};
 
 use std::{
     env,
@@ -53,8 +47,10 @@ impl TestHelper {
     fn get_db<'a>() -> MutexGuard<'a, PgConnection> {
         lazy_static! {
             static ref PG_CONN_FOR_TEST: Arc<Mutex<PgConnection>> = Arc::new(Mutex::new(
-                PgConnection::establish(&env::var("DATABASE_TEST_URL")
-                    .expect("No DATABASE_TEST_URL env var")).expect("Cannot connect to db")
+                PgConnection::establish(
+                    &env::var("DATABASE_TEST_URL").expect("No DATABASE_TEST_URL env var")
+                )
+                .expect("Cannot connect to db")
             ));
         }
 
@@ -113,9 +109,8 @@ impl TestHelper {
                 active: true,
                 register_time: util::now(),
             };
-            let (user, (public_key, secret_key)) = schema
-                .create_user(&new_user)
-                .expect("cannot create user");
+            let (user, (public_key, secret_key)) =
+                schema.create_user(&new_user, None).expect("cannot create user");
             rv.push(UserWithKey::new(user.into(), public_key, secret_key));
         }
         rv
@@ -150,36 +145,35 @@ impl<'a> ApiHelper<'a> {
         Self { testkit }
     }
 
-    /// Register user
-    /// Mengembalikan token untuk aktivasi.
-    pub fn register_user(&self, user_name: &str, email: &str, phone_number: &str) -> ApiResult<String> {
-        let api = self.testkit.api();
+    // /// Register user
+    // /// Mengembalikan token untuk aktivasi.
+    // pub fn register_user(&self, user_name: &str, email: &str, phone_number: &str) -> ApiResult<String> {
+    //     let api = self.testkit.api();
 
-        let data = RegisterUser {
-            full_name: user_name.to_owned(),
-            email: email.to_owned(),
-            phone_num: phone_number.to_owned(),
-        };
+    //     let data = RegisterUser {
+    //         full_name: user_name.to_owned(),
+    //         email: email.to_owned(),
+    //         phone_num: phone_number.to_owned(),
+    //     };
 
-        api.public(ApiKind::User)
-            .query(&data)
-            .post("v1/user/register")
-            .expect("create user")
-    }
+    //     api.public(ApiKind::User)
+    //         .query(&data)
+    //         .post("v1/user/register")
+    //         .expect("create user")
+    // }
 
-    /// Aktivasi akun menggunakan token yang telah didapat dari hasil register.
-    pub fn activate_user(&self, token: String, password: &str) -> ApiResult<types::User> {
-        let api = self.testkit.api();
+    // /// Aktivasi akun menggunakan token yang telah didapat dari hasil register.
+    // pub fn activate_user(&self, token: String, password: &str) -> ApiResult<types::User> {
+    //     let api = self.testkit.api();
 
-        let data = ActivateUser {
-            token,
-            password: password.to_owned(),
-        };
+    //     let data = ActivateUser {
+    //         token,
+    //         password: password.to_owned(),
+    //     };
 
-        api.public(ApiKind::User)
-            .query(&data)
-            .post::<ApiResult<types::User>>("v1/user/activate")
-            .expect("activate user")
-    }
+    //     api.public(ApiKind::User)
+    //         .query(&data)
+    //         .post::<ApiResult<types::User>>("v1/user/activate")
+    //         .expect("activate user")
+    // }
 }
-

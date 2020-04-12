@@ -6,10 +6,14 @@ use validator::Validate;
 use crate::{
     api,
     api::types::*,
-    api::{error::param_error, ApiResult},
+    api::{
+        error::{param_error, unauthorized},
+        ApiResult,
+    },
     dao::AdminDao,
     models,
     prelude::*,
+    ID,
 };
 
 /// New Admin query
@@ -25,6 +29,18 @@ pub struct NewAdmin {
     pub email: String,
     #[validate(phone(message = "Invalid phone number: {}"))]
     pub phone_num: String,
+    #[validate(length(
+        min = 6,
+        max = 500,
+        message = "Invalid password length, min 6 and max 500 characters"
+    ))]
+    pub password: String,
+    #[validate(length(
+        min = 6,
+        max = 500,
+        message = "Invalid password length, min 6 and max 500 characters"
+    ))]
+    pub confirm_password: String,
 }
 
 /// Activate Admin query
@@ -38,12 +54,18 @@ pub struct ActivateAdmin {
     pub token: String,
 }
 
+#[derive(Deserialize, Validate)]
+pub struct UpdatePassword {
+    pub id: ID,
+    pub password: String,
+    pub password_confm: String,
+}
+
 /// Holder untuk implementasi API endpoint publik untuk admin.
 pub struct PublicApi;
 
 #[api_group("Admin", "public", base = "/admin/v1", accessor = "admin")]
 impl PublicApi {
-
     /// Rest API endpoint untuk menambahkan admin baru.
     #[api_endpoint(path = "/add", mutable, auth = "required")]
     pub fn add_admin(query: NewAdmin) -> ApiResult<models::Admin> {
@@ -52,22 +74,43 @@ impl PublicApi {
         let conn = state.db();
         let dao = AdminDao::new(&conn);
 
+        if query.password != query.confirm_password {
+            return param_error("Confirmation password didn't match");
+        }
+
+        if current_admin.id != 1 {
+            return unauthorized();
+        }
+
         let labels = vec![];
 
-        dao.create(&query.name, &query.email, &query.phone_num, &labels)
-            .map_err(From::from)
-            .map(ApiResult::success)
+        dao.create(
+            &query.name,
+            &query.email,
+            &query.phone_num,
+            &query.password,
+            &labels,
+        )
+        .map_err(From::from)
+        .map(ApiResult::success)
     }
 
     /// Mendapatkan daftar admin
-    #[api_endpoint(path = "/list", auth = "required")]
+    #[api_endpoint(path = "/list", auth = "required", accessor = "admin")]
     pub fn list_admin(query: QueryEntries) -> ApiResult<EntriesResult<models::Admin>> {
         query.validate()?;
 
         let conn = state.db();
         let dao = AdminDao::new(&conn);
 
+        if current_admin.id > 1 {
+            return unauthorized();
+        }
+
         let entries = dao.get_admins(query.offset, query.limit)?;
+
+        // filter out admin and system user from listing
+        let entries = entries.into_iter().filter(|a| a.id > 1).collect();
 
         let count = dao.count()?;
         Ok(ApiResult::success(EntriesResult { count, entries }))
@@ -105,7 +148,7 @@ impl PublicApi {
     }
 
     /// Mendapatkan informasi current admin.
-    #[api_endpoint(path = "/me/info", auth = "required")]
+    #[api_endpoint(path = "/me/info", auth = "required", accessor = "admin")]
     pub fn me_info(state: &AppState, query: (), req: &ApiHttpRequest) -> ApiResult<models::Admin> {
         Ok(ApiResult::success(current_admin))
     }
@@ -117,7 +160,7 @@ impl PublicApi {
 
         let conn = state.db();
         let dao = AdminDao::new(&conn);
-        let admin = dao.get_admin_by_email(&query.email)?;
+        let admin = dao.get_by_email(&query.email)?;
 
         dao.reset_password(admin.id, admin.name, admin.email)?;
 
@@ -131,7 +174,7 @@ impl PublicApi {
 
         let conn = state.db();
         let dao = AdminDao::new(&conn);
-        let admin = dao.get_admin_by_email(&query.email)?;
+        let admin = dao.get_by_email(&query.email)?;
 
         if let Some(token) = query.token {
             dao.verify_reset_password(admin.id, &token)?;
@@ -149,7 +192,7 @@ impl PublicApi {
 
         let conn = state.db();
         let dao = AdminDao::new(&conn);
-        let admin = dao.get_admin_by_email(&query.email)?;
+        let admin = dao.get_by_email(&query.email)?;
 
         match (query.token, query.password) {
             (Some(token), Some(password)) => {
@@ -162,6 +205,22 @@ impl PublicApi {
 
         Ok(ApiResult::success(()))
     }
+
+    /// Update password.
+    #[api_endpoint(path = "/update_password", auth = "required", mutable, accessor = "admin")]
+    pub fn update_password(query: UpdatePassword) -> ApiResult<()> {
+        let conn = state.db();
+
+        let dao = AdminDao::new(&conn);
+
+        if current_admin.id != 1 {
+            return unauthorized();
+        }
+
+        dao.set_password(query.id, &query.password)?;
+
+        Ok(ApiResult::success(()))
+    }
 }
 
 /// Holder untuk implementasi API endpoint privat.
@@ -169,4 +228,3 @@ pub struct PrivateApi;
 
 #[api_group("Admin", "private", base = "/admin/v1", accessor = "admin")]
 impl PrivateApi {}
-

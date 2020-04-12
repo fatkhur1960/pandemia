@@ -1,11 +1,20 @@
 //! Definisi struct untuk model-model yang ada di dalam database.
 
+use crate::{result::Result, schema::user_settings, types::RecordDiff};
 use chrono::NaiveDateTime;
+use diesel::prelude::*;
 use serde::Serialize;
 
 use std::fmt;
 
 use crate::ID;
+
+/// Interface untuk model yang pasti memiliki id
+/// sehingga bisa dijadikan model generik untuk mendapatkan id
+pub trait HasID {
+    /// Get this record ID.
+    fn get_id(&self) -> ID;
+}
 
 /// Bentuk model akun di dalam database.
 #[derive(Queryable, Clone, Serialize, PartialEq)]
@@ -118,7 +127,6 @@ impl fmt::Display for UserKey {
     }
 }
 
-
 #[doc(hidden)]
 #[derive(Queryable, Serialize)]
 pub struct Admin {
@@ -149,3 +157,184 @@ pub struct ResetPasswordAdmin {
     pub expiration: Option<NaiveDateTime>,
 }
 
+#[doc(hidden)]
+#[derive(Queryable, Serialize, Clone, Debug)]
+pub struct Record {
+    pub id: ID,
+    pub loc: String,
+    pub loc_kind: i16,
+    pub total_cases: i32,
+    pub total_deaths: i32,
+    pub total_recovered: i32,
+    pub active_cases: i32,
+    pub critical_cases: i32,
+    pub latest: bool,
+    pub meta: Vec<String>,
+    pub last_updated: NaiveDateTime,
+}
+
+impl Record {
+    /// Get diff for this with other
+    pub fn diff(&self, other: &Self) -> RecordDiff {
+        let new_cases = self.total_cases - other.total_cases;
+        let new_deaths = self.total_deaths - other.total_deaths;
+        let new_recovered = self.total_recovered - other.total_recovered;
+        let new_critical = self.critical_cases - other.critical_cases;
+
+        RecordDiff {
+            new_cases,
+            new_deaths,
+            new_recovered,
+            new_critical,
+        }
+    }
+}
+
+#[doc(hidden)]
+#[derive(Queryable, Serialize)]
+pub struct Notif {
+    pub id: ID,
+    pub kind: i16,
+    pub text: String,
+    pub initiator_id: ID,
+    pub receiver_id: ID,
+    pub read: bool,
+    pub keywords: Vec<String>,
+    pub meta: Vec<String>,
+    pub ts: NaiveDateTime,
+}
+
+#[doc(hidden)]
+#[derive(Queryable, Serialize)]
+pub struct Feed {
+    pub id: ID,
+    pub creator_id: ID,
+    pub creator_name: String,
+    pub loc: String,
+    pub kind: i16,
+    pub text: String,
+    pub hashtags: Vec<String>,
+    pub meta: Vec<String>,
+    pub ts: NaiveDateTime,
+}
+
+#[doc(hidden)]
+#[derive(Queryable, Serialize)]
+pub struct UserSetting {
+    pub id: ID,
+    pub user_id: ID,
+    pub s_key: String,
+    pub s_value: String,
+}
+
+#[derive(Insertable)]
+#[table_name = "user_settings"]
+struct NewUserSetting<'a> {
+    user_id: ID,
+    s_key: &'a str,
+    s_value: &'a str,
+}
+impl User {
+    /// Set user setting
+    pub fn set_setting(&self, key: &str, value: &str, conn: &PgConnection) -> Result<()> {
+        {
+            use crate::schema::user_settings::{self, dsl};
+
+            let already_exists: bool = user_settings::table
+                .filter(dsl::user_id.eq(self.id).and(dsl::s_key.eq(key)))
+                .count()
+                .first::<i64>(conn)?
+                > 0;
+            if already_exists {
+                diesel::update(dsl::user_settings.filter(dsl::user_id.eq(self.id).and(dsl::s_key.eq(key))))
+                    .set(dsl::s_value.eq(&value))
+                    .execute(conn)?;
+            } else {
+                diesel::insert_into(user_settings::table)
+                    .values(&NewUserSetting {
+                        user_id: self.id,
+                        s_key: key,
+                        s_value: value,
+                    })
+                    .execute(conn)?;
+            }
+        }
+
+        // for optimization only
+        if key == "enable_push_notif" {
+            use crate::schema::user_connect::{self, dsl};
+            diesel::update(dsl::user_connect.filter(dsl::user_id.eq(self.id)))
+                .set(dsl::enable_push_notif.eq(value == "true"))
+                .execute(conn)?;
+        }
+
+        Ok(())
+    }
+
+    /// Get user setting value.
+    pub fn get_setting(&self, key: &str, conn: &PgConnection) -> Result<Option<String>> {
+        use crate::schema::user_settings::{self, dsl};
+        match user_settings::table
+            .filter(dsl::user_id.eq(self.id).and(dsl::s_key.eq(key)))
+            .select(dsl::s_value)
+            .first::<String>(conn)
+        {
+            Ok(a) => Ok(Some(a)),
+            Err(diesel::result::Error::NotFound) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Get all user settings
+    pub fn get_settings(&self, conn: &PgConnection) -> Result<Vec<UserSetting>> {
+        use crate::schema::user_settings::{self, dsl};
+        user_settings::table
+            .filter(dsl::user_id.eq(self.id))
+            .load(conn)
+            .map_err(From::from)
+    }
+}
+
+#[doc(hidden)]
+#[derive(Queryable, Serialize)]
+pub struct GeolocCache {
+    pub id: ID,
+    pub name: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub ts: NaiveDateTime,
+}
+
+#[doc(hidden)]
+#[derive(Queryable, Serialize)]
+pub struct MapMarker {
+    pub id: ID,
+    pub name: String,
+    pub info: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub kind: i16,
+    pub meta: Vec<String>,
+    pub ts: NaiveDateTime,
+}
+
+impl MapMarker {
+    /// Get i32 type meta value.
+    pub fn get_meta_value_i32(&self, key: &str) -> i32 {
+        self.meta
+            .iter()
+            .find(|a| a.starts_with(&format!("{}:", key)))
+            .and_then(|a| a.splitn(2, ':').last())
+            .and_then(|a| a.parse::<i32>().ok())
+            .unwrap_or(0)
+    }
+
+    /// Get string type meta value.
+    pub fn get_meta_value_str(&self, key: &str) -> &str {
+        self.meta
+            .iter()
+            .find(|a| a.starts_with(&format!("{}:", key)))
+            .and_then(|a| a.splitn(2, ':').last())
+            .unwrap_or("")
+    }
+}
